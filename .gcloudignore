@@ -1,0 +1,40 @@
+# .gcloudignore
+# Exclude files and directories not needed for the Cloud Function deployment
+
+# Standard Python ignores
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*~
+*.swp
+
+# Virtual environment
+venv/
+.venv/
+
+# Testing artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+
+# IDE/Editor config
+.vscode/
+.idea/
+
+# Local config (keep .env.yaml, but ignore others if present)
+.env
+*.local
+
+# Supabase local development files (if any)
+supabase/
+
+# Documentation / Large data files not needed at runtime
+docs/
+sft_jsonl/
+
+# Other build/cache files
+*.egg-info/
+.eggs/
+dist/
+build/ 

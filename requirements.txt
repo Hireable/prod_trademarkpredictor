@@ -1,0 +1,39 @@
+# requirements.txt
+# Core Cloud Function framework
+functions-framework
+
+# Google Cloud Libraries
+google-adk
+
+# Database Interaction
+supabase
+postgrest
+SQLAlchemy
+# psycopg2-binary  # Remove synchronous adapter
+asyncpg          # Add asynchronous adapter
+
+# Data Validation and Modeling
+pydantic
+
+# Vector Embeddings and Similarity (Placeholder/Examples)
+# pgvector integration likely handled via SQLAlchemy/psycopg extensions or raw SQL
+# Levenshtein distance for visual string similarity
+python-Levenshtein
+pgvector
+sentence-transformers
+torch
+Metaphone
+
+# Utilities
+python-dotenv # For loading environment variables during local development
+
+# Test
+pytest
+
+# FastAPI and Uvicorn
+fastapi
+uvicorn[standard]
+
+# Additional dependencies
+aiosqlite  # For async SQLite support
+httpx  # For async HTTP client

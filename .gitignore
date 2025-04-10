@@ -1,0 +1,66 @@
+# Environment Variables
+# Ignore local environment files, but keep the example template
+.env
+.env.yaml
+sessions.db
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Dependency Management (e.g., pip, uv, rye, poetry, pdm)
+*.egg-info/
+.eggs/
+*.egg
+dist/
+build/
+wheels/
+*.whl
+pip-wheel-metadata/
+pip-log.txt
+pip-delete-this-directory.txt
+.pdm-build/
+.pdm.toml
+pyproject.toml.pdm
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+htmlcov/
+pytestdebug.log
+*.cover
+
+# IDE / Editor specific
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS Specific
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Data files (if large or sensitive)
+sft_jsonl/
+
+# Cloud Specific (add others as needed)
+.google/
+.gcloud/ 
