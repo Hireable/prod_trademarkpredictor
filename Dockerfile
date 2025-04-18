@@ -35,4 +35,4 @@ EXPOSE $PORT
 # Define the command to run the application
 # Assumes your FastAPI app instance is named 'app' in 'src/main.py'
 # Uses the PORT environment variable defined above (or injected by Cloud Run)
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "$PORT"] 
+CMD uvicorn src.main:app --host 0.0.0.0 --port ${PORT} 

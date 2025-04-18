@@ -196,6 +196,18 @@ class GoodsServiceOrm(Base):
     updated_at: Column[TIMESTAMP] = Column(TIMESTAMP(timezone=True), server_default=sqlalchemy.func.now(), onupdate=sqlalchemy.func.now())
 
 
+    # Relationship to embeddings
+    # Note: This defines how to load embeddings *related* to this GoodsServiceOrm instance.
+    # The condition links VectorEmbeddingOrm based on entity_type and this instance's ID.
+    embeddings = relationship(
+        "VectorEmbeddingOrm",
+        primaryjoin="and_(VectorEmbeddingOrm.entity_type=='goods_services', foreign(VectorEmbeddingOrm.entity_id)==GoodsServiceOrm.id)",
+        back_populates="goods_service", # Links back to the relationship in VectorEmbeddingOrm
+        viewonly=True, # Typically viewonly if embeddings aren't managed *through* GoodsServiceOrm
+        # overlaps="embeddings" # Removed 'overlaps' as it was causing issues previously and might not be needed with explicit primaryjoin and back_populates
+    )
+
+
     # Relationship back to the parent trademark (REMOVED, needs rethinking based on full schema)
     # trademark = relationship("TrademarkOrm", back_populates="goods_services")
 
@@ -223,13 +235,19 @@ class VectorEmbeddingOrm(Base):
     created_at: Column[TIMESTAMP] = Column(TIMESTAMP(timezone=True), server_default=sqlalchemy.func.now())
     updated_at: Column[TIMESTAMP] = Column(TIMESTAMP(timezone=True), server_default=sqlalchemy.func.now(), onupdate=sqlalchemy.func.now())
 
-    # TODO: Define relationships back to specific entity tables if needed, e.g.:
-    # goods_service = relationship(
-    #     "GoodsServiceOrm",
-    #     primaryjoin="and_(VectorEmbeddingOrm.entity_type=='goods_services', foreign(VectorEmbeddingOrm.entity_id)==GoodsServiceOrm.id)",
-    #     back_populates="embeddings", # Requires adding `embeddings` relationship to GoodsServiceOrm
-    #     uselist=False
-    # )
+    # Define relationship back to the specific GoodsServiceOrm entity
+    # This allows navigating from an embedding back to the specific GoodsServiceOrm it belongs to.
+    goods_service = relationship(
+        "GoodsServiceOrm",
+        primaryjoin="and_(VectorEmbeddingOrm.entity_type=='goods_services', foreign(VectorEmbeddingOrm.entity_id)==GoodsServiceOrm.id)",
+        back_populates="embeddings", # Links back to the relationship defined in GoodsServiceOrm
+        uselist=False, # An embedding belongs to one GoodsServiceOrm
+        viewonly=True, # Typically viewonly if GoodsServiceOrm isn't managed *through* the embedding
+        # overlaps="goods_service" # Removed 'overlaps' as it was causing issues previously and might not be needed with explicit primaryjoin and back_populates
+    )
+
+    # NOTE: If relationships to other entity types (e.g., 'trademark_cases') are needed,
+    # similar relationship definitions would be added here and in the corresponding ORM classes.
 
     __table_args__ = (
         Index('idx_vector_embeddings_entity', 'entity_type', 'entity_id'), # Explicit index based on schema

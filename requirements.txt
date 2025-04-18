@@ -4,6 +4,7 @@ functions-framework
 
 # Google Cloud Libraries
 google-adk
+google-genai
 
 # Database Interaction
 supabase
@@ -13,7 +14,7 @@ SQLAlchemy
 asyncpg          # Add asynchronous adapter
 
 # Data Validation and Modeling
-pydantic
+pydantic>=2.0.0
 
 # Vector Embeddings and Similarity (Placeholder/Examples)
 # pgvector integration likely handled via SQLAlchemy/psycopg extensions or raw SQL
@@ -23,12 +24,16 @@ pgvector
 sentence-transformers
 torch
 Metaphone
+nltk             # Added for enhanced conceptual similarity (WordNet, etc.)
+transformers     # For LegalBERT and other transformer models
+datasets         # Required for working with Hugging Face models
 
 # Utilities
 python-dotenv # For loading environment variables during local development
 
 # Test
 pytest
+pytest-asyncio   # For testing async functions
 
 # FastAPI and Uvicorn
 fastapi

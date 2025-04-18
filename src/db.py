@@ -22,10 +22,13 @@ import os
 from typing import Optional, List, Tuple
 
 import sqlalchemy
-from sqlalchemy import select # Add select import
+from sqlalchemy import select, Index, cast, String # Add index import
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker # Import async components
 from sqlalchemy.exc import OperationalError, IntegrityError
 from supabase import create_client, Client
+
+# Import the logger
+from src.logger import get_logger, info, warning, error, exception
 
 # Import ORM models and embedding function
 from src.models import Base, GoodsServiceOrm, VectorEmbeddingOrm
@@ -39,6 +42,7 @@ try:
     load_dotenv()
 except ImportError:
     # dotenv is optional, mainly for local development
+    logger.info("dotenv not installed, skipping .env file loading")
     pass
 
 
@@ -74,16 +78,17 @@ def get_supabase() -> Client:
     supabase_key: Optional[str] = os.getenv("SUPABASE_KEY")
 
     if not all([supabase_url, supabase_key]):
-        raise ValueError(
-            "Missing required Supabase environment variables: "
-            "SUPABASE_URL, SUPABASE_KEY"
-        )
+        error_msg = "Missing required Supabase environment variables: SUPABASE_URL, SUPABASE_KEY"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
     try:
         # Create and store the Supabase client
         _supabase = create_client(supabase_url, supabase_key)
+        logger.info("Successfully created Supabase client")
         return _supabase
     except Exception as e:
+        exception("Failed to create Supabase client", exc=e)
         raise OperationalError(f"Failed to create Supabase client: {e}", params={}, orig=e) from e
 
 
@@ -119,17 +124,19 @@ async def get_async_engine() -> sqlalchemy.ext.asyncio.AsyncEngine: # Make async
             host_part = supabase_url.split("//")[1]
             db_host = f"db.{host_part}"
         except IndexError:
-            raise ValueError("Invalid SUPABASE_URL format.")
+            error_msg = "Invalid SUPABASE_URL format."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
     if not all([db_host, db_password]):
-        raise ValueError(
-            "Missing required environment variables for DB engine: "
-            "SUPABASE_URL, SUPABASE_SERVICE_KEY"
-        )
+        error_msg = "Missing required environment variables for DB engine: SUPABASE_URL, SUPABASE_SERVICE_KEY"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
     try:
         # Use postgresql+asyncpg dialect
         db_url = f"postgresql+asyncpg://{db_user}:{db_password}@{db_host}:5432/{db_name}"
+        logger.info("Initializing async database engine")
 
         # Use create_async_engine
         async_engine = create_async_engine(
@@ -148,15 +155,16 @@ async def get_async_engine() -> sqlalchemy.ext.asyncio.AsyncEngine: # Make async
 
         # Store the engine globally for reuse
         _async_engine = async_engine
-        print("Async database engine created successfully.") # Added log
+        logger.info("Async database engine created successfully.")
         return _async_engine
     except OperationalError as e:
-        print(f"Database connection failed: {e}")
+        exception("Database connection failed", exc=e)
         raise
     except Exception as e:
         # Ensure the original exception type is preserved if possible
         if isinstance(e, OperationalError):
              raise
+        exception("Failed to create async database engine", exc=e)
         raise OperationalError(f"Failed to create async database engine: {e}", params={}, orig=e) from e
 
 
@@ -174,7 +182,7 @@ async def get_async_session() -> async_sessionmaker[AsyncSession]: # Make async 
             class_=AsyncSession,
             expire_on_commit=False # Recommended for async sessions
         )
-        print("Async session maker created.") # Added log
+        logger.info("Async session maker created.")
     return _async_session_local
 
 
@@ -204,14 +212,14 @@ async def store_goods_service_embedding(goods_service_id: int, term: str, sessio
         existing = result.scalars().first() # Use await and scalars()
 
         if existing:
-            print(f"Embedding already exists for goods_services ID {goods_service_id}.")
+            logger.info(f"Embedding already exists for goods_services ID {goods_service_id}")
             return True
 
-        # Generate the embedding (assuming generate_embedding is sync, which is okay if CPU-bound)
-        embedding_vector: Optional[List[float]] = generate_embedding(term)
+        # Generate the embedding (Use the async version now)
+        embedding_vector: Optional[List[float]] = await generate_embedding(term)
 
         if embedding_vector is None:
-            print(f"Failed to generate embedding for term: {term}")
+            logger.warning(f"Failed to generate embedding for term", term=term)
             return False
 
         # Create and store the new embedding record
@@ -222,13 +230,13 @@ async def store_goods_service_embedding(goods_service_id: int, term: str, sessio
         )
         session.add(new_embedding)
         await session.flush() # Use await
-        print(f"Successfully stored embedding for goods_services ID {goods_service_id}.")
+        logger.info(f"Successfully stored embedding for goods_services ID {goods_service_id}")
         # No explicit commit here, assuming caller manages the transaction boundary
         return True
 
     except IntegrityError as e:
         # Handle potential race conditions if another process inserted concurrently
-        print(f"IntegrityError storing embedding for goods_services ID {goods_service_id}: {e}")
+        exception("IntegrityError storing embedding", exc=e, goods_service_id=goods_service_id)
         await session.rollback() # Use await
         # Optionally, re-query async to confirm if it exists now
         stmt = select(VectorEmbeddingOrm).filter_by(
@@ -238,7 +246,7 @@ async def store_goods_service_embedding(goods_service_id: int, term: str, sessio
         result = await session.execute(stmt)
         return result.scalars().first() is not None # Check if exists after rollback
     except Exception as e:
-        print(f"Error storing embedding for goods_services ID {goods_service_id}: {e}")
+        exception("Error storing embedding", exc=e, goods_service_id=goods_service_id)
         await session.rollback() # Use await
         return False
 
@@ -246,6 +254,7 @@ async def store_goods_service_embedding(goods_service_id: int, term: str, sessio
 async def find_similar_goods_services( # Make async
     query_embedding: List[float],
     limit: int = 10,
+    distance_threshold: float = 0.3, # Add threshold parameter
     session: Optional[AsyncSession] = None, # Accept optional AsyncSession
 ) -> List[Tuple[GoodsServiceOrm, float]]:
     """
@@ -257,6 +266,7 @@ async def find_similar_goods_services( # Make async
     Args:
         query_embedding: The vector embedding to search against.
         limit: The maximum number of similar items to return.
+        distance_threshold: Maximum cosine distance to consider (0.0-2.0, lower is more similar).
         session: An optional existing asynchronous SQLAlchemy session. If None, a new one is created and managed.
 
     Returns:
@@ -279,6 +289,7 @@ async def find_similar_goods_services( # Make async
     try:
         # Use the <=> operator for cosine distance (provided by pgvector)
         # Query VectorEmbeddingOrm, get distance, join with GoodsServiceOrm
+        # Add WHERE clause with distance threshold
         stmt = (
             select( # Use select() from sqlalchemy
                 GoodsServiceOrm,
@@ -287,16 +298,23 @@ async def find_similar_goods_services( # Make async
             .join(VectorEmbeddingOrm,
                   (VectorEmbeddingOrm.entity_id == GoodsServiceOrm.id) &
                   (VectorEmbeddingOrm.entity_type == 'goods_services'))
+            .where(VectorEmbeddingOrm.embedding.cosine_distance(query_embedding) <= distance_threshold)
             .order_by(sqlalchemy.asc("distance")) # Use sqlalchemy.asc explicitly
             .limit(limit)
         )
 
+        # Log search parameters
+        logger.info("Executing vector similarity search", limit=limit, distance_threshold=distance_threshold)
+
         # Execute the query asynchronously
         query_result = await db_session.execute(stmt)
         results = query_result.all() # Returns List[Row], Row contains (GoodsServiceOrm, float)
+        
+        # Log search results
+        logger.info(f"Vector search found {len(results)} similar items")
 
     except Exception as e:
-        print(f"Error finding similar goods/services: {e}")
+        exception("Error finding similar goods/services", exc=e)
         if manage_session: # Only rollback if we created the session
             await db_session.rollback() # Use await
     finally:
@@ -310,64 +328,108 @@ async def find_similar_goods_services( # Make async
     return results # type: ignore
 
 
-# --- Example Usage (Optional, for testing/scripts) ---
-# Need to be adapted for async if run directly
-# async def populate_all_embeddings_async():
-#     """Generates and stores embeddings for all existing goods_services asynchronously."""
-#     AsyncSessionLocal = await get_async_session()
-#     async with AsyncSessionLocal() as session:
-#         async with session.begin(): # Manage transaction
-#             try:
-#                 stmt = select(GoodsServiceOrm)
-#                 result = await session.execute(stmt)
-#                 goods_services_records = result.scalars().all()
-#                 print(f"Found {len(goods_services_records)} goods/services records.")
-#                 count_success = 0
-#                 count_fail = 0
-#                 for record in goods_services_records:
-#                     if record.id is not None and record.term:
-#                         # Pass the session explicitly
-#                         if await store_goods_service_embedding(record.id, record.term, session):
-#                             count_success += 1
-#                         else:
-#                             count_fail += 1
-#                     else:
-#                         print(f"Skipping record with missing ID or term: {record}")
-#                         count_fail += 1
-#
-#                 print(f"Attempted embedding storage: {count_success} succeeded, {count_fail} failed/skipped.")
-#                 # Commit happens automatically with session.begin() context exiting successfully
-#
-#             except Exception as e:
-#                 print(f"An error occurred during async embedding population: {e}")
-#                 # Rollback happens automatically with session.begin() context exiting with exception
-#                 raise # Re-raise after logging
-#
-# # if __name__ == "__main__":
-# #     import asyncio
-# #     print("Populating embeddings asynchronously...")
-# #     asyncio.run(populate_all_embeddings_async())
-# #     print("Async embedding population attempt finished.")
-# #
-# #     # Example async search
-# #     async def run_search():
-# #         print("\nTesting async search...")
-# #         example_term = "computer software"
-# #         example_embedding = generate_embedding(example_term) # Sync embedding gen is ok
-# #         if example_embedding:
-# #             print(f"Searching for terms similar to '{example_term}'...")
-# #             # Use the find function directly, it manages its own session if needed
-# #             similar_items = await find_similar_goods_services(example_embedding, limit=5)
-# #             if similar_items:
-# #                 print("Found similar items:")
-# #                 for gs, distance in similar_items: # Unpack tuple
-# #                     print(f"  - Term: '{gs.term}', Class: {gs.nice_class}, Distance: {distance:.4f}")
-# #             else:
-# #                 print("No similar items found or error occurred.")
-# #         else:
-# #             print(f"Could not generate embedding for '{example_term}'.")
-# #
-# #     asyncio.run(run_search())
+# --- CREATE INDEXES FOR VECTOR SEARCH OPTIMIZATION ---
+async def create_vector_indexes(session: AsyncSession) -> None:
+    """
+    Creates optimized indexes for vector similarity searches if they don't exist.
+    This includes both B-tree indexes for traditional filtering and an IVFFlat index
+    for efficient approximate nearest neighbor searches with pgvector.
+    
+    Args:
+        session: An asynchronous SQLAlchemy session.
+    """
+    try:
+        logger.info("Checking and creating vector search indexes")
+        
+        # Check if indexes exist first
+        check_index_query = sqlalchemy.text("""
+            SELECT indexname FROM pg_indexes 
+            WHERE tablename = 'vector_embeddings' AND indexname = 'idx_vector_embeddings_embedding_ivfflat'
+        """)
+        result = await session.execute(check_index_query)
+        if result.first() is None:
+            # Create IVFFlat index for faster ANN searches
+            # Lists 100 is a good starting point for most collections, can be tuned based on data size
+            ivfflat_query = sqlalchemy.text("""
+                CREATE INDEX IF NOT EXISTS idx_vector_embeddings_embedding_ivfflat 
+                ON vector_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)
+            """)
+            await session.execute(ivfflat_query)
+            logger.info("Created IVFFlat index for vector embeddings")
+        
+        # Check for entity type+id index
+        check_entity_index_query = sqlalchemy.text("""
+            SELECT indexname FROM pg_indexes 
+            WHERE tablename = 'vector_embeddings' AND indexname = 'idx_vector_embeddings_entity_combined'
+        """)
+        result = await session.execute(check_entity_index_query)
+        if result.first() is None:
+            # Create optimized index for entity type + id searches (frequently used in joins)
+            entity_index_query = sqlalchemy.text("""
+                CREATE INDEX IF NOT EXISTS idx_vector_embeddings_entity_combined 
+                ON vector_embeddings (entity_type, entity_id)
+            """)
+            await session.execute(entity_index_query)
+            logger.info("Created combined entity type+id index")
+        
+        # Add GIN index for text search on goods_services terms if needed
+        check_gin_index_query = sqlalchemy.text("""
+            SELECT indexname FROM pg_indexes 
+            WHERE tablename = 'goods_services' AND indexname = 'idx_goods_services_term_gin'
+        """)
+        result = await session.execute(check_gin_index_query)
+        if result.first() is None:
+            gin_index_query = sqlalchemy.text("""
+                CREATE INDEX IF NOT EXISTS idx_goods_services_term_gin 
+                ON goods_services USING gin (term gin_trgm_ops)
+            """)
+            
+            # Add the trgm extension if not present
+            await session.execute(sqlalchemy.text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            
+            # Create the index
+            await session.execute(gin_index_query)
+            logger.info("Created GIN index for text search on goods_services terms")
+        
+        # Commit all index changes
+        await session.commit()
+        logger.info("Successfully created all vector search indexes")
+            
+    except Exception as e:
+        exception("Error creating vector indexes", exc=e)
+        await session.rollback()
+        raise
+
+
+# --- Initialize Database with Indexes ---
+async def initialize_database() -> None:
+    """
+    Initializes the database by:
+    1. Creating tables if they don't exist
+    2. Adding optimized indexes for vector searches
+    
+    Should be called during application startup.
+    """
+    logger.info("Initializing database")
+    try:
+        # Get engine and create tables
+        engine = await get_async_engine()
+        async with engine.begin() as conn:
+            # Create tables if they don't exist
+            # Note: This assumes your models have __table_args__ with 'extend_existing=True'
+            # to avoid errors if tables already exist
+            await conn.run_sync(Base.metadata.create_all)
+        
+        # Create session and add indexes
+        AsyncSessionLocal = await get_async_session()
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                await create_vector_indexes(session)
+        
+        logger.info("Database initialization completed successfully")
+    except Exception as e:
+        exception("Database initialization failed", exc=e)
+        raise
 
 
 # Need to import Base for potential Base.metadata.create_all usage

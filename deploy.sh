@@ -4,4 +4,4 @@ gcloud run deploy trademark-agent \
     --allow-unauthenticated \
     --env-vars-file=.env.yaml \
     --memory=1Gi \
-    --cpu=3
+    --cpu=2
