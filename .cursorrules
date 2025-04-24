@@ -1,0 +1,109 @@
+# .cursorrules — AI-first, human-friendly configuration for Cursor AI
+# Project: Trademark-AI (backend-only FastAPI service, Firebase-on-GCP stack)
+
+rules:
+  # ────────────────────────────────────────────────────────────────
+  - id: ai-and-human-readable
+    description: >
+      Optimise **all** code, comments, docs, commit messages for *both*
+      LLMs and humans:
+        • Descriptive identifiers; no abbreviations unless industry-standard.
+        • Start every docstring / markdown section with a one-sentence summary,
+          then detail.
+        • Stable heading hierarchy (#, ##, ###) so LLMs can build TOCs.
+        • Prefer clear, linear logic over clever tricks.
+        • Docstrings: PEP 257 w/ *Args*, *Returns*, *Raises*.
+        • Always provide type hints.
+    enforcementLevel: high
+
+  # ────────────────────────────────────────────────────────────────
+  - id: project-goal
+    description: >
+      Changes MUST advance the Greenfield Blueprint v3 objective:
+      “Compare two trademarks + goods/services and predict likelihood/outcome
+      of opposition for trademark lawyers.”
+    enforcementLevel: high
+
+  # ────────────────────────────────────────────────────────────────
+  - id: ssot-pydantic
+    description: >
+      **Pydantic models in `trademark_core/models.py` are the single source of
+      truth (SSoT).**
+        • Do NOT duplicate or mutate schemas elsewhere.
+        • API response/ request models must import from the SSoT.
+        • Tests and fixtures pull from the SSoT.
+        • Schema changes require updating the SSoT first, tests next, then code.
+    enforcementLevel: high
+
+  # ────────────────────────────────────────────────────────────────
+  - id: backend-only-no-auth
+    description: >
+      Remember: this repository is **backend API only**.
+        • No front-end assets, no Firebase Hosting.
+        • MVP is stateless HTTP; *no authentication* required.
+        • Do not introduce UI code or auth middleware unless explicitly asked.
+    enforcementLevel: high
+
+  # ────────────────────────────────────────────────────────────────
+  - id: tech-stack
+    description: >
+      Respect the stack declared in the Blueprint:
+        • FastAPI + Uvicorn
+        • Cloud SQL (Postgres 15 + pgvector) via asyncpg
+        • Gemini 2.5 Pro via Vertex AI
+      New deps must be lightweight, maintained, and justified in a bullet list.
+    enforcementLevel: medium
+
+  # ────────────────────────────────────────────────────────────────
+  - id: code-style
+    description: >
+      Follow PEP 8 + Ruff defaults; import groups:
+        1. Standard library
+        2. Third-party
+        3. Local
+      Leave one blank line between groups.
+    enforcementLevel: high
+
+  # ────────────────────────────────────────────────────────────────
+  - id: maintainability
+    description: >
+      Keep modules small, functions focused, avoid duplication.
+      Remove dead code.  Complexity low so LLMs can parse whole modules.
+    enforcementLevel: high
+
+  # ────────────────────────────────────────────────────────────────
+  - id: test-driven-development
+    description: >
+      Where practical, add/adjust tests before or with code changes.
+      All tests (`pytest`) must pass before PRs merge.
+    enforcementLevel: medium
+
+  # ────────────────────────────────────────────────────────────────
+  - id: ai-explanation-required
+    description: >
+      For non-trivial design or dependency choices, add a markdown-formatted
+      explanation (*Why*, *Alternatives considered*, *Trade-offs*).
+    enforcementLevel: medium
+
+  # ────────────────────────────────────────────────────────────────
+  - id: ask-questions-proactively
+    description: >
+      When specs are ambiguous or architectural impact is high,
+      ask clarifying questions before coding.
+    enforcementLevel: high
+
+  # ────────────────────────────────────────────────────────────────
+  - id: cursor-agent-environment
+    description: >
+      As Cursor AI you may:
+        • run shell commands (e.g. `pytest`, `ruff`)
+        • read / modify any repo file
+        • search the web for factual data
+      Log commands you execute and why, so others can reproduce.
+    enforcementLevel: low
+
+indexing:
+  # Offer Cursor extra context by default
+  - "api/**/*.py"
+  - "trademark_core/**/*.py"
+  - "tests/**/*.py"

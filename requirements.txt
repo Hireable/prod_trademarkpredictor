@@ -1,0 +1,23 @@
+# Core dependencies
+fastapi
+uvicorn
+pydantic
+
+# Trademark similarity calculations
+python-levenshtein
+metaphone
+sentence-transformers
+transformers
+torch
+nltk
+
+# Added for Gemini integration
+google-genai
+
+# Client utilities
+httpx
+
+# Development dependencies
+pytest
+pytest-asyncio
+ruff 
