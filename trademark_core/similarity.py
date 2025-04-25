@@ -8,27 +8,10 @@ similarity between trademarks, operating entirely in memory without database dep
 from typing import List, Optional, Dict, Tuple
 import Levenshtein
 from metaphone import doublemetaphone
-import numpy as np
-from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModel
-import torch
-import nltk
-from nltk.corpus import wordnet
-from nltk.stem import PorterStemmer, WordNetLemmatizer
-import re
 
 from trademark_core import models
-
-# Initialize NLTK data
-try:
-    nltk.data.find('corpora/wordnet')
-except LookupError:
-    nltk.download('wordnet')
-
-# Initialize models
-_sentence_transformer = SentenceTransformer('all-mpnet-base-v2')
-_legal_bert_tokenizer = AutoTokenizer.from_pretrained('nlpaueb/legal-bert-base-uncased')
-_legal_bert_model = AutoModel.from_pretrained('nlpaueb/legal-bert-base-uncased')
+from trademark_core.conceptual import calculate_conceptual_similarity as calculate_conceptual_similarity_impl
+from trademark_core.llm import calculate_goods_services_similarity_llm
 
 def calculate_visual_similarity(mark1: str, mark2: str) -> float:
     """
@@ -96,10 +79,7 @@ def calculate_aural_similarity(mark1: str, mark2: str) -> float:
 
 async def calculate_conceptual_similarity(mark1: str, mark2: str) -> float:
     """
-    Calculate conceptual similarity between two trademarks using a combination of:
-    1. Semantic embeddings from SentenceTransformer
-    2. Legal domain understanding from LegalBERT
-    3. WordNet-based conceptual relationships
+    Calculate conceptual similarity between two trademarks using Gemini 2.5 Pro.
     
     Args:
         mark1: First trademark text
@@ -108,85 +88,12 @@ async def calculate_conceptual_similarity(mark1: str, mark2: str) -> float:
     Returns:
         float: Similarity score between 0.0 (dissimilar) and 1.0 (identical)
     """
-    # Clean and normalize marks
-    mark1 = mark1.lower().strip()
-    mark2 = mark2.lower().strip()
-    
-    # Handle empty strings
-    if not mark1 and not mark2:
-        return 1.0
-    if not mark1 or not mark2:
-        return 0.0
-    
-    # 1. Get general semantic similarity using SentenceTransformer
-    embeddings1 = _sentence_transformer.encode([mark1], convert_to_tensor=True)
-    embeddings2 = _sentence_transformer.encode([mark2], convert_to_tensor=True)
-    semantic_sim = torch.nn.functional.cosine_similarity(embeddings1, embeddings2)[0].item()
-    
-    # 2. Get legal domain similarity using LegalBERT
-    inputs1 = _legal_bert_tokenizer(mark1, return_tensors="pt", padding=True, truncation=True)
-    inputs2 = _legal_bert_tokenizer(mark2, return_tensors="pt", padding=True, truncation=True)
-    
-    with torch.no_grad():
-        outputs1 = _legal_bert_model(**inputs1)
-        outputs2 = _legal_bert_model(**inputs2)
-    
-    legal_embeddings1 = outputs1.last_hidden_state.mean(dim=1)
-    legal_embeddings2 = outputs2.last_hidden_state.mean(dim=1)
-    legal_sim = torch.nn.functional.cosine_similarity(legal_embeddings1, legal_embeddings2)[0].item()
-    
-    # 3. Get WordNet-based conceptual similarity
-    def get_synsets(word: str) -> List:
-        return wordnet.synsets(word)
-    
-    def get_conceptual_similarity(word1: str, word2: str) -> float:
-        synsets1 = get_synsets(word1)
-        synsets2 = get_synsets(word2)
-        
-        if not synsets1 or not synsets2:
-            return 0.0
-        
-        # Get max similarity between any pair of synsets
-        max_sim = 0.0
-        for syn1 in synsets1:
-            for syn2 in synsets2:
-                sim = syn1.path_similarity(syn2) or 0.0
-                max_sim = max(max_sim, sim)
-        
-        return max_sim
-    
-    # Split compound marks and get max conceptual similarity
-    words1 = mark1.split()
-    words2 = mark2.split()
-    
-    conceptual_sims = []
-    for w1 in words1:
-        for w2 in words2:
-            sim = get_conceptual_similarity(w1, w2)
-            conceptual_sims.append(sim)
-    
-    wordnet_sim = max(conceptual_sims) if conceptual_sims else 0.0
-    
-    # Combine similarities with weights
-    weights = {
-        'semantic': 0.4,
-        'legal': 0.4,
-        'wordnet': 0.2
-    }
-    
-    combined_sim = (
-        weights['semantic'] * semantic_sim +
-        weights['legal'] * legal_sim +
-        weights['wordnet'] * wordnet_sim
-    )
-    
-    return max(0.0, min(1.0, combined_sim))
+    return await calculate_conceptual_similarity_impl(mark1, mark2)
 
-def calculate_goods_services_similarity(applicant_gs: List[models.GoodService], 
+async def calculate_goods_services_similarity(applicant_gs: List[models.GoodService], 
                                      opponent_gs: List[models.GoodService]) -> float:
     """
-    Calculate similarity between two lists of goods/services using semantic similarity
-    and Nice class matching.
+    Calculate similarity between two lists of goods/services using LLM analysis.
     
     Args:
         applicant_gs: List of applicant's goods/services
@@ -198,42 +105,7 @@ def calculate_goods_services_similarity(applicant_gs: List[models.GoodService],
     if not applicant_gs or not opponent_gs:
         return 0.0
     
-    # Get embeddings for all terms
-    applicant_embeddings = _sentence_transformer.encode(
-        [gs.term for gs in applicant_gs],
-        convert_to_tensor=True
-    )
-    opponent_embeddings = _sentence_transformer.encode(
-        [gs.term for gs in opponent_gs],
-        convert_to_tensor=True
-    )
-    
-    # Calculate similarity matrix
-    similarity_matrix = torch.nn.functional.cosine_similarity(
-        applicant_embeddings.unsqueeze(1),
-        opponent_embeddings.unsqueeze(0),
-        dim=2
-    )
-    
-    # For each applicant term, find the most similar opponent term
-    max_similarities = []
-    for i, app_gs in enumerate(applicant_gs):
-        best_sim = 0.0
-        for j, opp_gs in enumerate(opponent_gs):
-            # Base similarity from embeddings
-            term_sim = similarity_matrix[i][j].item()
-            
-            # Adjust based on Nice class matching
-            class_match = 1.0 if app_gs.nice_class == opp_gs.nice_class else 0.5
-            
-            # Combine term and class similarity
-            combined_sim = term_sim * class_match
-            best_sim = max(best_sim, combined_sim)
-        
-        max_similarities.append(best_sim)
-    
-    # Return average of best similarities
-    return sum(max_similarities) / len(max_similarities)
+    return await calculate_goods_services_similarity_llm(applicant_gs, opponent_gs)
 
 async def calculate_overall_similarity(mark1: models.Mark, mark2: models.Mark) -> models.MarkComparison:
     """
